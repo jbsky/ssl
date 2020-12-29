@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -x
 #================================================================
 # HEADER
 #================================================================
@@ -52,7 +52,7 @@ SSL_DIR="${HOME}/ssl"
 KEY_DIR="${HOME}/.keys"
 bits=8192
 bits=1024
-days=365
+days=3650
 ocsp=
 
 C="FR"
@@ -223,9 +223,9 @@ nsComment             = \"OpenSSL Generated Certificate\"\n"
 #  FUNCTIONS Creation d'un certificat d'autorite
 #============================
 CreerAutorite(){
-    info "CreerAutorite"
+  info "CreerAutorite"
 
-  if [ ${flagOptParent} -eq 0 ];then
+  if [ ${flagOptParent} -eq 1 ];then
 
     WK_DIR="${SSL_DIR}/${OptParent}"
     # Extraction du Subject du parent
@@ -291,6 +291,8 @@ CreerAutorite(){
     openssl genrsa -aes256 -out "${WK_DIR}/private/cakey.pem" -passout file:"${KEY_DIR}/${OptAutorite}.key" ${bits}
     chmod 400 "${WK_DIR}/private/cakey.pem"
     chgrp ssl-cert "${WK_DIR}/private/cakey.pem"
+    info $(cat ${WK_DIR}/serial )
+
   fi
 
   # Soit le nouveau certificat d'autorite a un parent => certificat d'autorite intermediaire
@@ -306,10 +308,11 @@ CreerAutorite(){
     # La certif parent signe avec sa cle
     if [[ ! -f "${SSL_DIR}/${OptAutorite}/cacert.pem.backup" ]]; then
       openssl ca -batch -days ${days} -create_serial -passin file:"${KEY_DIR}/${OptParent}.key" -in "${SSL_DIR}/${OptAutorite}/CA.csr" -out "${SSL_DIR}/${OptAutorite}/cacert.pem.backup" -extensions ca_ext -notext -config <(PrintMinimalConf;PrintCAConf)
-      chgrp ssl-cert "${WK_DIR}/cacert.pem"
-      chmod 644 "${WK_DIR}/cacert.pem"
-      openssl x509 -serial -noout -in "${WK_DIR}/cacert.pem" | cut -d= -f2 > "${WK_DIR}/serial"
-      printf "%X\n" $((0x`cat "${WK_DIR}/serial"`+1))>"${WK_DIR}/serial"
+
+      chgrp ssl-cert "${SSL_DIR}/${OptAutorite}/cacert.pem.backup"
+      chmod 644 "${SSL_DIR}/${OptAutorite}/cacert.pem.backup"
+      openssl x509 -serial -noout -in "${SSL_DIR}/${OptAutorite}/cacert.pem.backup" | cut -d= -f2 > "${SSL_DIR}/${OptAutorite}/serial"
+      printf "%X\n" $((0x`cat "${SSL_DIR}/${OptAutorite}/serial"`+1))>"${SSL_DIR}/${OptAutorite}/serial"
     fi
     # On cree la chaine CA Racine + celui qu'on vient de creer.
     cat "${SSL_DIR}/${OptAutorite}/cacert.pem.backup" "${WK_DIR}/cacert.pem" > "${SSL_DIR}/${OptAutorite}/cacert.pem"
