@@ -1,48 +1,44 @@
-#!/bin/bash -x
+#!/bin/bash
 #================================================================
 # HEADER
 #================================================================
-#% SYNOPSIS
-#+  ${SCRIPT_NAME} -a Root
-#+  ${SCRIPT_NAME} -a Int1 -p Root [-f]
-#+  ${SCRIPT_NAME} -a Root -c -s -o ocsp.example.com [-f]
-#+  ${SCRIPT_NAME} -a Int1 -s mysite.example.com [-f]
-#+  ${SCRIPT_NAME} -a Root -r ocsp.example.com [-f]
-#+  ${SCRIPT_NAME} -a Int1 -l
-#+  ${SCRIPT_NAME} -a Int1 -t mysite.example.com
-#+
 #% DESCRIPTION
-#% Script helping to generate and manage SSL certificates.
-#%
+#% Industrialisation de la gestion des certificats avec openssl.
+#% Permet de créer des certificats avec OpenSSL au format pem ainsi qu'un P12.
+#% Ajout d'un keystore.
+#+ Exemple :
+#+  ${SCRIPT_NAME} [-f] -a Root                                 # Creation d'un certificat d'autorite
+#+  ${SCRIPT_NAME} [-f] -a Int1 -p Root                         # Creation d'un certificat d'autorite ayant une autorite parent
+#+  ${SCRIPT_NAME} [-f] -a Root -c -s -o ocsp.example.com       # Creation d'un certificat avec les flags client, serveur et oscp ayant pour fqdn ocsp.example.com
+#+  ${SCRIPT_NAME} [-f] -a Int1 -s example.com,www.example.org  # Creation d'un certificat fqdn,fqdn2 avec le flag serveur  
+#+  ${SCRIPT_NAME} [-f] -a Root -r ocsp.example.com             # Revocation du certificat ocsp.example.com
+#+  ${SCRIPT_NAME} -a Int1 -l                                   # List des certificats
+#+  ${SCRIPT_NAME} -a Int1 -t mysite.example.com                # Affiche le contenu d'un certificat
+#+
 #% OPTIONS
-#%  -a $name | --authority=$name            Create a new authority or choose an existing authority
-#%  -p $name | --parent=$name             Relative parent only used when create authority
-#%  -s $CN | --server=$CN               Add nsCertType server and extendedKeyUsage serverAuth
-#%  -c $CN | --client=$CN               Add nsCertType client and extendedKeyUsage clientAuth
-#%  -o $CN | --ocsp=$CN                 Add extendedKeyUsage OCSPSigning
-#%  -m $CN | --mail=$CN                 Add nsCertType client and emailProtection
-#%  -r $CN | --revoke=$CN               Revoke cert
-#%  -f                        Create fast without question C/O/OU/L/ST/emailAddress
-#%  -t $CN                      Text out cert
-#%  -l                        List cert
-#%  -h                        print this help
-#%  -v                        verbose
-#%
+#%  -a $name | --authority=$name        Create a new authority or choose an existing authority
+#%  -p $name | --parent=$name           Relative parent only used when create authority
+#%  -s $CN1,$CN2 | --server=$CN1,$CN2   Add nsCertType server and extendedKeyUsage serverAuth
+#%  -c $CN1,$CN2 | --client=$CN1,$CN2   Add nsCertType client and extendedKeyUsage clientAuth
+#%  -o $CN1,$CN2 | --ocsp=$CN1,$CN2     Add extendedKeyUsage OCSPSigning
+#%  -m $CN1,$CN2 | --mail=$CN1,$CN2     Add nsCertType client and emailProtection
+#%  -r $CN1 | --revoke=$CN1             Revoke cert
+#%  -f                                  Create fast without question C/O/OU/L/ST/emailAddress
+#%  -t $CN1                             Text out cert
+#%  -l                                  List cert
+#%  -h                                  print this help
+#%  -v                                  verbose
 #%
 #================================================================
 #- IMPLEMENTATION
-#-  version     ${SCRIPT_NAME} 1.0
+#-  version     ${SCRIPT_NAME} 1.1
 #-  author      Julien BLAIS
 #-  license     GNU General Public License
 #-
 #================================================================
 #  HISTORY
-#   2019/12/29 : Passage a la version 1.0
-#
-#================================================================
-#  DEBUG OPTION
-# set -n  # Uncomment to check your syntax, without execution.
-# set -x  # Uncomment to debug this shell script
+#   2019/12/29 : Creation
+#   2021/05/09 : Ajout keystore
 #
 #================================================================
 # END_OF_HEADER
@@ -50,8 +46,7 @@
 
 SSL_DIR="${HOME}/ssl"
 KEY_DIR="${HOME}/.keys"
-bits=8192
-bits=1024
+bits=2048
 days=3650
 ocsp=
 
@@ -128,11 +123,6 @@ distinguished_name = req_distinguished_name
 
 [ req_distinguished_name ]
 
-# [ v3_req ]
-# basicConstraints = CA:FALSE
-# keyUsage = nonRepudiation, digitalSignature, keyEncipherment
-# extendedKeyUsage = serverAuth, clientAuth, OCSPSigning
-
 [ policy_match ]
 countryName       = match
 stateOrProvinceName   = optional
@@ -184,9 +174,9 @@ nsCertType = sslCA, emailCA\n"
 #============================
 PrintCAConf(){
   printf "[ ca_ext ]
-keyUsage = critical,keyCertSign,cRLSign
-basicConstraints = critical,CA:true
-subjectKeyIdentifier = hash
+keyUsage               = critical,keyCertSign,cRLSign
+basicConstraints       = critical,CA:true
+subjectKeyIdentifier   = hash
 authorityKeyIdentifier = keyid:always\n"
 }
 
@@ -197,22 +187,22 @@ PrintCertConf(){
   printf "[ cert ]
 subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid,issuer:always
-issuerAltName           = issuer:copy
-basicConstraints          = critical,CA:FALSE
-keyUsage              = digitalSignature, nonRepudiation, keyEncipherment
-extendedKeyUsage          = ${extendedKeyUsage}
-nsComment             = \"OpenSSL Generated Certificate\"\n"
+issuerAltName               = issuer:copy
+basicConstraints            = critical,CA:FALSE
+keyUsage                    = digitalSignature, nonRepudiation, keyEncipherment
+extendedKeyUsage            = ${extendedKeyUsage}
+nsComment                   = \"OpenSSL Generated Certificate\"\n"
 
   if [ "${nsCertType}" != "" ];then
     printf "nsCertType            = ${nsCertType}\n"
   fi
   if [ "${ocsp}" != "" ]; then
-    printf "authorityInfoAccess = OCSP;URI:http://${ocsp}\n"
+    printf "authorityInfoAccess       = OCSP;URI:http://${ocsp}\n"
   fi
-  if [ ${flagOptServeur} -eq 1 ]&& [ ${flagOptMail} -eq 1 ];then
-    printf "subjectAltName          = @alt_names,email:move\n\n[alt_names]\n${alt_names}\n"
+  if [ ${flagOptServeur} -eq 1 -o ${flagOptClient} -eq 1 ] && [ ${flagOptMail} -eq 1 ];then
+    printf   "subjectAltName          = @alt_names,email:move\n\n[alt_names]\n${alt_names}\n"
   else
-    if [ ${flagOptServeur} -eq 1 ]&& [ ${flagOptMail} -eq 0 ];then
+    if [ ${flagOptServeur} -eq 1 -o ${flagOptClient} -eq 1 ] && [ ${flagOptMail} -eq 0 ];then
       printf "subjectAltName          = @alt_names\n\n[alt_names]\n${alt_names}\n"
     else
       printf "subjectAltName          =email:move\n"
@@ -274,6 +264,8 @@ CreerAutorite(){
   _mkdir "${WK_DIR}/newcerts"
   _mkdir "${WK_DIR}/private"
   _mkdir "${WK_DIR}/p12"
+  _mkdir "${KEY_DIR}"
+
   if [ ${flagOptFast} -eq 0 ];then
     read -p "Please enter a URL for ocsp serveur : " ocsp
   fi
@@ -329,7 +321,8 @@ CreerAutorite(){
       printf "%X\n" $((0x`cat "${WK_DIR}/serial"`+1))>"${WK_DIR}/serial"
     fi
   fi
-
+  [[ -f /usr/bin/keytool ]] && \
+  keytool -import -alias bundle -trustcacerts -file "${WK_DIR}/cacert.pem" -keystore "${WK_DIR}/$(basename ${WK_DIR}).jks" -storepass changeit -noprompt
 
 }
 
@@ -338,10 +331,16 @@ CreerAutorite(){
 #============================
 RevokeCertificat(){
 info "Repertoire de travail: ${WK_DIR}"
-openssl ca -revoke "${WK_DIR}/certs/${OptRevokeCert}.pem" -name tmp_ca -passin file:"${KEYFILE}"  -config <(PrintMinimalConf)
 
-mv "${WK_DIR}/certs/${OptRevokeCert}.pem"  "${WK_DIR}/certs/${OptRevokeCert}.pem.${DATE}.drop"
-mv "${WK_DIR}/private/${OptRevokeCert}.key"  "${WK_DIR}/private/${OptRevokeCert}.key.${DATE}.drop"
+[[ -f ${WK_DIR}/certs/${OptRevokeCert}.pem ]] && \
+  openssl ca -revoke "${WK_DIR}/certs/${OptRevokeCert}.pem" -name tmp_ca -passin file:"${KEYFILE}"  -config <(PrintMinimalConf)
+[[ -f ${WK_DIR}/certs/${OptRevokeCert}.pem ]] && \
+  mv "${WK_DIR}/certs/${OptRevokeCert}.pem"  "${WK_DIR}/certs/${OptRevokeCert}.pem.${DATE}.drop"
+[[ -f ${WK_DIR}/private/${OptRevokeCert}.key ]] && \
+  mv "${WK_DIR}/private/${OptRevokeCert}.key"  "${WK_DIR}/private/${OptRevokeCert}.key.${DATE}.drop"
+
+[[ -f /usr/bin/keytool ]] && \
+  keytool -delete -alias ${OptRevokeCert} -keystore "${WK_DIR}/$(basename ${WK_DIR}).jks" -storepass changeit
 }
 
 #============================
@@ -377,13 +376,13 @@ CreerCertificat(){
 
   extendedKeyUsage=""
   nsCertType=""
-  if [ ${flagOptClient} -eq 1 ]||[ ${flagOptMail} -eq 1 ];then
+  if [ ${flagOptClient} -eq 1 ];then
     nsCertType="client"
     extendedKeyUsage="clientAuth"
   fi
   if [ ${flagOptMail} -eq 1 ];then
-    [[ "${extendedKeyUsage}" != "" ]] && extendedKeyUsage="${extendedKeyUsage}, emailProtection"
-    [[ "${extendedKeyUsage}" == "" ]] && extendedKeyUsage="clientAuth, emailProtection"
+    nsCertType="client"
+    extendedKeyUsage="clientAuth, emailProtection"
   fi
   if [ ${flagOptServeur} -eq 1 ];then
     [[ "${nsCertType}" != "" ]] && nsCertType="${nsCertType}, server"
@@ -464,6 +463,8 @@ CreerCertificat(){
       openssl pkcs12 -export -password pass:$RANDPASS -inkey "${WK_DIR}/private/${firstCN}.key" -in "${WK_DIR}/certs/${firstCN}.pem" -name "${firstCN}" -certfile "${WK_DIR}/cacert.pem" -caname "${ca}" -out "${WK_DIR}/p12/${firstCN}.p12"
       chmod 444 "${WK_DIR}/certs/${firstCN}.pem"
       chgrp ssl-cert "${WK_DIR}/certs/${firstCN}.pem"
+      [[ -f /usr/bin/keytool ]] && \
+      keytool -importkeystore -destkeystore "${WK_DIR}/$(basename ${WK_DIR}).jks" -srcstoretype PKCS12 -srckeystore "${WK_DIR}/p12/${firstCN}.p12" -srcstorepass $RANDPASS -storepass changeit
     fi
   else
     openssl x509 -in "${WK_DIR}/certs/${firstCN}.pem" -noout -text
@@ -636,7 +637,7 @@ if [ "${flagOptAutorite}" = "1" ];then
     error "Parent and authority have the same name, so strange, isn't it?" 1>&2 && exit 4;
   fi
   info "Repertoire de travail : ${WK_DIR}"
-  [ ${flagOptRevoke} -ne 1 ] && [ ${flagOptClient} -ne 1 ] && [ ${flagOptRevoke} -ne 1 ] && [ ${flagOptOCSP} -ne 1 ] && CreerAutorite
+  [ ${flagOptRevoke} -ne 1 ] && [ ${flagOptClient} -ne 1 ] && [ ${flagOptServeur} -ne 1 ] && [ ${flagOptText} -ne 1 ] && [ ${flagOptOCSP} -ne 1 ] && CreerAutorite
 
   [[ -f "${WK_DIR}/default" ]] && . "${WK_DIR}/default"
 
