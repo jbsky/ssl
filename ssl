@@ -31,14 +31,13 @@
 #%
 #================================================================
 #- IMPLEMENTATION
-#-  version     ${SCRIPT_NAME} 1.1
+#-  version     ${SCRIPT_NAME} 0.2
 #-  author      Julien BLAIS
-#-  license     GNU General Public License
+#-  license     On s'en branle
 #-
 #================================================================
 #  HISTORY
 #   2019/12/29 : Creation
-#   2021/05/09 : Ajout keystore
 #
 #================================================================
 # END_OF_HEADER
@@ -152,7 +151,6 @@ default_md    = default         # use public key default MD
 preserve    = no          # keep passed DN ordering
 policy      = policy_match
 
-# Ajout de la partie suivante pour signer un certif d'autorite enfant
 [ ca ]
 default_ca    = tmp_ca\n"
 }
@@ -187,26 +185,19 @@ PrintCertConf(){
   printf "[ cert ]
 subjectKeyIdentifier        = hash
 authorityKeyIdentifier      = keyid,issuer:always
-issuerAltName               = issuer:copy
 basicConstraints            = critical,CA:FALSE
 keyUsage                    = digitalSignature, nonRepudiation, keyEncipherment
 extendedKeyUsage            = ${extendedKeyUsage}
 nsComment                   = \"OpenSSL Generated Certificate\"\n"
+[[ "${index}" != "1" ]] && printf "issuerAltName               = issuer:copy\n"
 
-  if [ "${nsCertType}" != "" ];then
-    printf "nsCertType            = ${nsCertType}\n"
-  fi
-  if [ "${ocsp}" != "" ]; then
-    printf "authorityInfoAccess       = OCSP;URI:http://${ocsp}\n"
-  fi
-  if [ ${flagOptServeur} -eq 1 -o ${flagOptClient} -eq 1 ] && [ ${flagOptMail} -eq 1 ];then
-    printf   "subjectAltName          = @alt_names,email:move\n\n[alt_names]\n${alt_names}\n"
+  [[ "${nsCertType}" != "" ]] && printf "nsCertType                = ${nsCertType}\n"
+  [[ "${ocsp}" != "" ]] &&       printf "authorityInfoAccess       = OCSP;URI:http://${ocsp}\n"
+  if  [[ "${flagOptMail}" == "1" ]];then
+    [[ "${index}" != "1" ]] && printf    "subjectAltName           = @alt_names,email:move\n\n[alt_names]\n${alt_names}\n"
+    [[ "${index}" == "1" ]] && printf    "subjectAltName           = email:move\n"
   else
-    if [ ${flagOptServeur} -eq 1 -o ${flagOptClient} -eq 1 ] && [ ${flagOptMail} -eq 0 ];then
-      printf "subjectAltName          = @alt_names\n\n[alt_names]\n${alt_names}\n"
-    else
-      printf "subjectAltName          =email:move\n"
-    fi
+    [[ "${index}" != "1" ]] && printf    "subjectAltName           = @alt_names\n\n[alt_names]\n${alt_names}\n"
   fi
 }
 #============================
@@ -222,15 +213,15 @@ CreerAutorite(){
     SUB=$(openssl x509 -noout -subject -in ${WK_DIR}/cacert.pem)
 
     # Formatage pour extraction des differents champs OU/C/O/L/ST/emailAddress
-    WK_SUB=$(echo ${SUB#*=} | sed -e "s/\ =\ /='/g"|sed -e "s/, /',/g"|sed 's/[[:blank:]]*$//')\'
+    WK_SUB=$(echo "${SUB#*=}" | sed -e "s/\ =\ /='/g"|sed -e "s/, /',/g"|sed 's/[[:blank:]]*$//')\'
 
     # On compte le nombre de champ a extraire par le caractere ","
-    COUNTER=$(($(echo ${WK_SUB} | grep -o "," | wc -l)+1))
+    COUNTER=$(($(echo "${WK_SUB}" | grep -o "," | wc -l)+1))
 
     if [ "${COUNTER}" -gt "0" ];then
-      for ((i=1;i<=${COUNTER};i++));
+      for ((i=1;i<="${COUNTER}";i++));
       do
-        eval $(cut -d "," -f $i <<< ${WK_SUB})
+        eval "$(cut -d "," -f "$i" <<< "${WK_SUB}")"
       done
     fi
     WK_DIR="${SSL_DIR}/${OptAutorite}"
@@ -241,7 +232,7 @@ CreerAutorite(){
   OU="Secure Digital Certificate Signing"
   if [ ${flagOptFast} -eq 0 ];then
 
-    for field in ${SSL_FLD[@]}
+    for field in "${SSL_FLD[@]}"
     do
       read -p "Please enter a new value or enter to confirm ${field}=${!field} : " NEW_VALUE
       if [[ "${NEW_VALUE}" != "" ]];then
@@ -269,7 +260,7 @@ CreerAutorite(){
   if [ ${flagOptFast} -eq 0 ];then
     read -p "Please enter a URL for ocsp serveur : " ocsp
   fi
-  if [[ "ocsp" != "" ]];then
+  if [[ "${ocsp}" != "" ]];then
     echo "ocsp=${ocsp}" > "${WK_DIR}/default"
   fi
   chmod -R 750 "${WK_DIR}/private"
@@ -283,7 +274,7 @@ CreerAutorite(){
     openssl genrsa -aes256 -out "${WK_DIR}/private/cakey.pem" -passout file:"${KEY_DIR}/${OptAutorite}.key" ${bits}
     chmod 400 "${WK_DIR}/private/cakey.pem"
     chgrp ssl-cert "${WK_DIR}/private/cakey.pem"
-    info $(cat ${WK_DIR}/serial )
+    info "$(cat "${WK_DIR}"/serial )"
 
   fi
 
@@ -304,7 +295,7 @@ CreerAutorite(){
       chgrp ssl-cert "${SSL_DIR}/${OptAutorite}/cacert.pem.backup"
       chmod 644 "${SSL_DIR}/${OptAutorite}/cacert.pem.backup"
       openssl x509 -serial -noout -in "${SSL_DIR}/${OptAutorite}/cacert.pem.backup" | cut -d= -f2 > "${SSL_DIR}/${OptAutorite}/serial"
-      printf "%X\n" $((0x`cat "${SSL_DIR}/${OptAutorite}/serial"`+1))>"${SSL_DIR}/${OptAutorite}/serial"
+      printf "%X\n" $((0x$(cat "${SSL_DIR}/${OptAutorite}/serial")+1))>"${SSL_DIR}/${OptAutorite}/serial"
     fi
     # On cree la chaine CA Racine + celui qu'on vient de creer.
     cat "${SSL_DIR}/${OptAutorite}/cacert.pem.backup" "${WK_DIR}/cacert.pem" > "${SSL_DIR}/${OptAutorite}/cacert.pem"
@@ -322,8 +313,15 @@ CreerAutorite(){
     fi
   fi
   [[ -f /usr/bin/keytool ]] && \
-  keytool -import -alias bundle -trustcacerts -file "${WK_DIR}/cacert.pem" -keystore "${WK_DIR}/$(basename ${WK_DIR}).jks" -storepass changeit -noprompt
-
+  keytool -import -trustcacerts -alias cacert -file "${WK_DIR}/cacert.pem" -keystore "${WK_DIR}/$(basename ${WK_DIR}).jks" -storepass changeit -noprompt
+  # 
+  RANDPK12=$(date | md5sum |  cut -c1-8)
+  echo "password : $RANDPK12"
+  echo $RANDPK12 >  "${WK_DIR}/p12/cacert.passwd"
+  openssl pkcs12 -export -password pass:$RANDPK12 -passin pass:$RANDPASS -inkey "${WK_DIR}/private/cakey.pem" -in "${WK_DIR}/cacert.pem" -name "${ca}" -out "${WK_DIR}/p12/cacert.p12"
+  [[ -f /usr/bin/keytool ]] && \
+  keytool -importkeystore -noprompt -trustcacerts -destkeystore "${WK_DIR}/$(basename ${WK_DIR}).jks" -srcstoretype PKCS12 -srckeystore "${WK_DIR}/p12/cacert.p12" -srcstorepass $RANDPK12 -storepass changeit
+  #  -alias cacert
 }
 
 #============================
@@ -352,20 +350,20 @@ CreerCertificat(){
   SUB=$(openssl x509 -noout -subject -in "${WK_DIR}/cacert.pem")
 
   # Formatage pour extraction des differents champs OU/C/O/L/ST/emailAddress
-  WK_SUB=$(echo ${SUB#*=} | sed -e "s/\ =\ /='/g"|sed -e "s/, /',/g"|sed 's/[[:blank:]]*$//')\'
+  WK_SUB=$(echo "${SUB#*=}" | sed -e "s/\ =\ /='/g"|sed -e "s/, /',/g"|sed 's/[[:blank:]]*$//')\'
 
   # On compte le nombre de champ a extraire par le caractere ","
-  COUNTER=$(($(echo ${WK_SUB} | grep -o "," | wc -l)+1))
+  COUNTER=$(($(echo "${WK_SUB}" | grep -o "," | wc -l)+1))
 
   if [ "${COUNTER}" -gt "0" ];then
     for ((i=1;i<=${COUNTER};i++));
     do
-      eval $(cut -d "," -f $i <<< ${WK_SUB})
+      eval "$(cut -d "," -f $i <<< "${WK_SUB}")"
     done
   fi
 
   if [ ${flagOptFast} -eq 0 ];then
-    for field in ${SSL_FLD[@]}
+    for field in "${SSL_FLD[@]}"
     do
       read -p "Please enter a new value or enter to confirm ${field}=${!field} : " NEW_VALUE
       if [[ "${NEW_VALUE}" != "" ]];then
@@ -419,25 +417,22 @@ CreerCertificat(){
       fi
     done
     IFS=$OLDIFS
-    CommonName=""
   else
-    # sinon on ajoute un espace pour entrer dans la boucle suivante :)
-    CommonName=" "
-  fi
-
-  while [ "${CommonName}" != "" ];do
-    read -p "CN ${index}:" CommonName
-    if [[ "${CommonName}" != "" && "${firstCN}" == ""  ]];then
-      firstCN=${CommonName}
-      index=$((${index}+1))
-      alt_names="DNS.${index}=${CommonName}"
-    else
-      if [[ "${CommonName}" != "" ]];then
+    # sinon on ajoute à la main
+    while [[ "${CommonName}" != "" || "${firstCN}" == "" ]];do
+      read -p "CN ${index}:" CommonName
+      if [[ "${CommonName}" != "" && "${firstCN}" == ""  ]];then
+        firstCN=${CommonName}
         index=$((${index}+1))
-        alt_names="${alt_names}\nDNS.${index}=${CommonName}"
+        alt_names="DNS.${index}=${CommonName}"
+      else
+        if [[ "${CommonName}" != "" ]];then
+          index=$((${index}+1))
+          alt_names="${alt_names}\nDNS.${index}=${CommonName}"
+        fi
       fi
-    fi
-  done
+    done
+  fi
 
   subj="${subj}/CN=${firstCN}"
   firstCN=${firstCN/\*/\\\*}
@@ -487,33 +482,18 @@ error (){ echo -e "\e[31m<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 #== general variables ==#
 SCRIPT_HEADSIZE=$(head -200 ${0} |grep -n "^# END_OF_HEADER" | cut -f1 -d:)
-SCRIPT_ID="$(scriptinfo | grep script_id | tr -s ' ' | cut -d' ' -f3)"
 SCRIPT_NAME="$(basename ${0})" # scriptname without path
-SCRIPT_UNIQ="${SCRIPT_NAME%.*}.${SCRIPT_ID}.$(date "+%y%m%d%H%M%S").${$}"
-SCRIPT_DIR="$( cd $(dirname "$0") && pwd )" # script directory
-SCRIPT_DIR_TEMP="/tmp" # Make sure temporary folder is RW
-
-SCRIPT_TIMELOG_FLAG=0
-SCRIPT_TIMELOG_FORMAT="+%y/%m/%d@%H:%M:%S"
-
 HOSTNAME="$(hostname)"
-FULL_COMMAND="${0} $*"
 DATE=$(date +"%Y%m%d")
-EXEC_DATE=$(date "+%y%m%d%H%M%S")
-EXEC_ID=${$}
 
 
   #== flag option menu R7 ==#
 flagOptErr=0
-flagOptLog=0
-flagOptinfo=0
 flagOptVerbose=0
 flagOptAutorite=0
-flagOptDefault=0
 flagOptServeur=0
 flagOptClient=0
 flagOptMenu=0
-flagOptDir=0
 flagOptParent=0
 flagOptOCSP=0
 flagOptRevoke=0
@@ -525,22 +505,22 @@ flagOptMail=0
 
   #== parse options ==#
 while getopts ${SCRIPT_OPTS} OPTION ; do
-  if [[ "x$OPTION" == "x-" ]]; then
+  if [[ "$OPTION" == "-" ]]; then
     LONG_OPTION=$OPTARG
-    LONG_OPTARG=$(echo $LONG_OPTION | grep "=" | cut -d'=' -f2)
+    LONG_OPTARG=$(echo "$LONG_OPTION" | grep "=" | cut -d'=' -f2)
     LONG_OPTIND=-1
-    [[ "x$LONG_OPTARG" = "x" ]] && LONG_OPTIND=$OPTIND || LONG_OPTION=$(echo $OPTARG | cut -d'=' -f1)
+    [[ "$LONG_OPTARG" == "" ]] && LONG_OPTIND=$OPTIND || LONG_OPTION=$(echo "$OPTARG" | cut -d'=' -f1)
     [[ $LONG_OPTIND -ne -1 ]] && eval LONG_OPTARG="\$$LONG_OPTIND"
     OPTION=${ARRAY_OPTS[$LONG_OPTION]}
-    [[ "x$OPTION" = "x" ]] &&  OPTION="?" OPTARG="-$LONG_OPTION"
+    [[ "$OPTION" == "" ]] &&  OPTION="?" OPTARG="-$LONG_OPTION"
 
     if [[ $( echo "${SCRIPT_OPTS}" | grep -c "${OPTION}:" ) -eq 1 ]]; then
-      if [[ "x${LONG_OPTARG}" = "x" ]] || [[ "${LONG_OPTARG}" = -* ]]; then
+      if [[ "${LONG_OPTARG}" = "" ]] || [[ "${LONG_OPTARG}" = -* ]]; then
         OPTION=":" OPTARG="-$LONG_OPTION"
       else
         OPTARG="$LONG_OPTARG";
         if [[ $LONG_OPTIND -ne -1 ]]; then
-          [[ $OPTIND -le $Optnum ]] && OPTIND=$(( $OPTIND+1 ))
+          [[ $OPTIND -le $Optnum ]] && OPTIND=$(( "$OPTIND"+1 ))
           shift $OPTIND
           OPTIND=1
         fi
@@ -549,18 +529,18 @@ while getopts ${SCRIPT_OPTS} OPTION ; do
   fi
 
   #== options follow by another option instead of argument ==#
-  if [[ "x${OPTION}" != "x:" ]] && [[ "x${OPTION}" != "x?" ]] && [[ "${OPTARG}" = -* ]]; then
+  if [[ "${OPTION}" != ":" ]] && [[ "${OPTION}" != "?" ]] && [[ "${OPTARG}" = "-*" ]]; then
     OPTARG="$OPTION" OPTION=":"
   fi
   #== manage options ==#
   getopts_get_optional_argument() {
-    eval next_token=\${$OPTIND}
+    eval "next_token=\${$OPTIND}"
     OPTARG=()
     while [[ -n $next_token && $next_token != -* ]];
     do
       OPTIND=$((OPTIND + 1))
       OPTARG+=("$next_token")
-      eval next_token=\${$OPTIND}
+      eval "next_token=\${$OPTIND}"
     done
     info "${OPTARG[*]}"
     # return "${OPTARG[*]}"
@@ -574,25 +554,25 @@ while getopts ${SCRIPT_OPTS} OPTION ; do
     r ) flagOptMenu=1;flagOptRevoke=1;OptRevokeCert="${OPTARG}";;
 
     o ) flagOptMenu=1;
-      getopts_get_optional_argument $@
+      getopts_get_optional_argument "$@"
       OptCN=("${OPTARG[@]}")
       flagOptOCSP=1;;
 
     f ) flagOptMenu=1;flagOptFast=1;;
 
     s ) flagOptMenu=1;
-      getopts_get_optional_argument $@
+      getopts_get_optional_argument "$@"
       OptCN=("${OPTARG[@]}")
 
       flagOptServeur=1;;
 
     c ) flagOptMenu=1;
-      getopts_get_optional_argument $@
+      getopts_get_optional_argument "$@"
       OptCN=("${OPTARG[@]}")
       flagOptClient=1;;
 
     m ) flagOptMenu=1;
-      getopts_get_optional_argument $@
+      getopts_get_optional_argument "$@"
       emailAddress=${OPTARG}
       OptCN=${emailAddress}
       flagOptMail=1;;
@@ -624,7 +604,7 @@ shift $((${OPTIND} - 1)) ## shift options
 #============================
 if [ ${flagOptMenu} -eq 0 ];then
   usage
-  exit -1
+  exit 10
 fi
 
 if [ "${flagOptAutorite}" = "1" ];then
@@ -643,12 +623,12 @@ if [ "${flagOptAutorite}" = "1" ];then
 
   if [ ${flagOptClient} = 1 ]||[ ${flagOptServeur} -eq 1 ]||[ ${flagOptOCSP} -eq 1 ];then
     [[ -r $KEYFILE ]] && CreerCertificat
-    [[ -r $KEYFILE ]] || error $KEYFILE not readable 1>&2
+    [[ -r $KEYFILE ]] || error "$KEYFILE" not readable 1>&2
     [[ -r $KEYFILE ]] || exit 1;
   else
     if [ ${flagOptRevoke} -eq 1 ];then
       [[ -r $KEYFILE ]] && RevokeCertificat
-      [[ -r $KEYFILE ]] || error $KEYFILE not readable 1>&2
+      [[ -r $KEYFILE ]] || error "$KEYFILE" not readable 1>&2
       [[ -r $KEYFILE ]] || exit 1;
     else
       if [ ${flagOptText} -eq 1 ];then
