@@ -313,12 +313,12 @@ CreerAutorite(){
     fi
   fi
   [[ -f /usr/bin/keytool ]] && \
-  keytool -import -trustcacerts -alias cacert -file "${WK_DIR}/cacert.pem" -keystore "${WK_DIR}/$(basename ${WK_DIR}).jks" -storepass changeit -noprompt
+  keytool -import -trustcacerts -file "${WK_DIR}/cacert.pem" -keystore "${WK_DIR}/$(basename ${WK_DIR}).jks" -storepass changeit -noprompt
   # 
   RANDPK12=$(date | md5sum |  cut -c1-8)
   echo "password : $RANDPK12"
   echo $RANDPK12 >  "${WK_DIR}/p12/cacert.passwd"
-  openssl pkcs12 -export -password pass:$RANDPK12 -passin pass:$RANDPASS -inkey "${WK_DIR}/private/cakey.pem" -in "${WK_DIR}/cacert.pem" -name "${ca}" -out "${WK_DIR}/p12/cacert.p12"
+  openssl pkcs12 -export -password pass:$RANDPK12 -passin pass:"$(cat "${KEY_DIR}/${OptAutorite}.key")" -inkey "${WK_DIR}/private/cakey.pem" -in "${WK_DIR}/cacert.pem" -name "${ca}" -out "${WK_DIR}/p12/cacert.p12"
   [[ -f /usr/bin/keytool ]] && \
   keytool -importkeystore -noprompt -trustcacerts -destkeystore "${WK_DIR}/$(basename ${WK_DIR}).jks" -srcstoretype PKCS12 -srckeystore "${WK_DIR}/p12/cacert.p12" -srcstorepass $RANDPK12 -storepass changeit
   #  -alias cacert
