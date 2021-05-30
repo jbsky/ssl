@@ -207,10 +207,9 @@ nsComment                   = \"OpenSSL Generated Certificate\"\n"
   [[ "${nsCertType}" != "" ]] && printf "nsCertType                = ${nsCertType}\n"
   [[ "${ocsp}" != "" ]] &&       printf "authorityInfoAccess       = OCSP;URI:http://${ocsp}\n"
   if  [[ "${flagOptMail}" == "1" ]];then
-    [[ "${index}" != "1" ]] && printf    "subjectAltName           = @alt_names,email:move\n\n[alt_names]\n${alt_names}\n"
-    [[ "${index}" == "1" ]] && printf    "subjectAltName           = email:move\n"
+    printf    "subjectAltName           = @alt_names,email:move\n\n[alt_names]\n${alt_names}\n"
   else
-    [[ "${index}" != "1" ]] && printf    "subjectAltName           = @alt_names\n\n[alt_names]\n${alt_names}\n"
+    printf    "subjectAltName           = @alt_names\n\n[alt_names]\n${alt_names}\n"
   fi
 }
 #============================
