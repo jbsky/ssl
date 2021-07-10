@@ -100,25 +100,19 @@ _mkdir(){
 
   if [ ! -d "${1}" ];then
     mkdir -p "${1}"
-    chgrp ssl-cert "${1}"
+    # chgrp ssl-cert "${1}"
   fi
 }
-#============================
-#  FUNCTIONS impression d'une partie du fichier openssl.cnf
-#============================
-PrintOCSPServerConf(){
-  printf "[ v3_OCSP ]
-basicConstraints = CA:FALSE
-keyUsage = nonRepudiation, digitalSignature, keyEncipherment
-extendedKeyUsage = OCSPSigning\n"
-}
 
+#============================
+#  FUNCTIONS impression openssl.cnf : POLICY
+#============================
 
 PrintPolicyRootConf(){
   printf "[ policy_match ]
 countryName       = match
-stateOrProvinceName   = optional
-organizationName    = optional
+stateOrProvinceName   = match
+organizationName    = match
 organizationalUnitName  = optional
 commonName        = supplied
 emailAddress      = optional\n"
@@ -126,22 +120,44 @@ emailAddress      = optional\n"
 
 PrintPolicyMinimalConf(){
   printf "[ policy_match ]
-countryName       = match
+countryName       = optional
 stateOrProvinceName   = optional
-organizationName    = match
+organizationName    = optional
 organizationalUnitName  = optional
 commonName        = supplied
 emailAddress      = optional\n"
 }
 
 #============================
-#  FUNCTIONS impression d'une partie du fichier openssl.cnf
+#  FUNCTIONS impression openssl.cnf : Partie minimal
 #============================
 PrintMinimalConf(){
   printf "[ req ]
-distinguished_name = req_distinguished_name
+distinguished_name      = req_distinguished_name
+x509_extensions         = v3_ca
+string_mask             = nombstr
+
+[ v3_ca ]
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid:always,issuer
+basicConstraints = critical,CA:true
 
 [ req_distinguished_name ]
+countryName                     = Country Name (2 letter code)
+countryName_default             = IN
+countryName_min                 = 2
+countryName_max                 = 2
+stateOrProvinceName             = State or Province Name (full name)
+stateOrProvinceName_default     = Some-State
+localityName                    = Locality Name (eg, city)
+localityName_default            = BANGALORE
+0.organizationName              = Organization Name (eg, company)
+0.organizationName_default      = GoLinuxCloud
+organizationalUnitName          = Organizational Unit Name (eg, section)
+commonName                      = Common Name (eg, your name or your server\'s hostname)
+commonName_max                  = 64
+emailAddress                    = Email Address
+emailAddress_max                = 64
 
 [ tmp_ca ]
 dir       = ${WK_DIR}
@@ -167,33 +183,24 @@ policy      = policy_match
 [ ca ]
 default_ca    = tmp_ca\n"
 }
-
 #============================
-#  FUNCTIONS impression d'une partie du fichier openssl.cnf
+#  FUNCTIONS impression openssl.cnf : les configurations
 #============================
-Print_V3CAConf(){
-  printf "[ v3_ca ]
-subjectKeyIdentifier=hash
-authorityKeyIdentifier=keyid:always,issuer
-basicConstraints = critical,CA:true
-keyUsage = cRLSign, keyCertSign
-nsCertType = sslCA, emailCA\n"
+PrintOCSPServerConf(){
+  printf "[ v3_OCSP ]
+basicConstraints = CA:FALSE
+keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+extendedKeyUsage = OCSPSigning\n"
 }
 
-#============================
-#  FUNCTIONS impression d'une partie du fichier openssl.cnf
-#============================
-PrintCAConf(){
-  printf "[ ca_ext ]
-keyUsage               = critical,keyCertSign,cRLSign
-basicConstraints       = critical,CA:true
-subjectKeyIdentifier   = hash
-authorityKeyIdentifier = keyid:always\n"
+Print_V3_intermediate_CAConf(){
+  printf "[ v3_intermediate_ca ]
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always,issuer
+basicConstraints = critical, CA:true, pathlen:0
+keyUsage = critical, digitalSignature, cRLSign, keyCertSign\n"
 }
 
-#============================
-#  FUNCTIONS impression d'une partie du fichier openssl.cnf
-#============================
 PrintCertConf(){
   printf "[ cert ]
 subjectKeyIdentifier        = hash
@@ -286,7 +293,7 @@ CreerAutorite(){
     echo "$RANDPASS" >  "${KEY_DIR}/${OptAutorite}.key"
     openssl genrsa -aes256 -out "${WK_DIR}/private/cakey.pem" -passout file:"${KEY_DIR}/${OptAutorite}.key" ${bits}
     chmod 400 "${WK_DIR}/private/cakey.pem"
-    chgrp ssl-cert "${WK_DIR}/private/cakey.pem"
+    # chgrp ssl-cert "${WK_DIR}/private/cakey.pem"
   fi
 
   # Soit le nouveau certificat d'autorite a un parent => certificat d'autorite intermediaire
@@ -301,9 +308,14 @@ CreerAutorite(){
 
     # La certif parent signe avec sa cle
     if [[ ! -f "${SSL_DIR}/${OptAutorite}/cacert.pem.backup" ]]; then
-      openssl ca -batch -days ${days} -create_serial -passin file:"${KEY_DIR}/${OptParent}.key" -in "${SSL_DIR}/${OptAutorite}/CA.csr" -out "${SSL_DIR}/${OptAutorite}/cacert.pem.backup" -extensions ca_ext -notext -config <(PrintMinimalConf;PrintPolicyMinimalConf;PrintCAConf)
+      openssl ca -batch -days ${days} -create_serial \
+      -passin file:"${KEY_DIR}/${OptParent}.key" \
+      -in "${SSL_DIR}/${OptAutorite}/CA.csr" \
+      -out "${SSL_DIR}/${OptAutorite}/cacert.pem.backup" \
+      -extensions v3_intermediate_ca -notext -config <(PrintMinimalConf;PrintPolicyMinimalConf;Print_V3_intermediate_CAConf)
 
-      chgrp ssl-cert "${SSL_DIR}/${OptAutorite}/cacert.pem.backup"
+      echo 01 > ${SSL_DIR}/${OptAutorite}/crlnumber
+      # chgrp ssl-cert "${SSL_DIR}/${OptAutorite}/cacert.pem.backup"
       chmod 644 "${SSL_DIR}/${OptAutorite}/cacert.pem.backup"
       openssl x509 -serial -noout -in "${SSL_DIR}/${OptAutorite}/cacert.pem.backup" | cut -d= -f2 > "${SSL_DIR}/${OptAutorite}/serial"
       printf "%X\n" $((0x$(cat "${SSL_DIR}/${OptAutorite}/serial")+1))>"${SSL_DIR}/${OptAutorite}/serial"
@@ -316,9 +328,12 @@ CreerAutorite(){
   else
     # Soit le certificat est bien racine / pas de parent
     if [[ ! -f "${WK_DIR}/cacert.pem" ]]; then
-      openssl req -x509 -sha512 -extensions v3_ca -days ${days} -subj "${subj}" -key "${WK_DIR}/private/cakey.pem" -passin file:"${KEY_DIR}/${OptAutorite}.key" -out "${WK_DIR}/cacert.pem" -config <(PrintMinimalConf;PrintPolicyRootConf;Print_V3CAConf)
-      chgrp ssl-cert "${WK_DIR}/cacert.pem"
-      chmod 644 "${WK_DIR}/cacert.pem"
+      openssl req -x509 -sha512 -extensions v3_ca \
+      -days ${days} -subj "${subj}" \
+      -key "${WK_DIR}/private/cakey.pem" \
+      -passin file:"${KEY_DIR}/${OptAutorite}.key" \
+      -out "${WK_DIR}/cacert.pem" -config <(PrintMinimalConf;PrintPolicyRootConf;Print_V3CAConf)
+
       openssl x509 -serial -noout -in "${WK_DIR}/cacert.pem" | cut -d= -f2 > "${WK_DIR}/serial"
       printf "%X\n" $((0x$(cat "${WK_DIR}/serial")+1))>"${WK_DIR}/serial"
     fi
@@ -450,7 +465,7 @@ CreerCertificat(){
   if [ ! -f "${WK_DIR}/private/${firstCN}.key" ];then
     openssl genrsa -out "${WK_DIR}/private/${firstCN}.key" ${bits}
     chmod 400 "${WK_DIR}/private/${firstCN}.key"
-    chgrp ssl-cert "${WK_DIR}/private/${firstCN}.key"
+    # chgrp ssl-cert "${WK_DIR}/private/${firstCN}.key"
   fi
 
   if [ ! -f "${WK_DIR}/certs/${firstCN}.pem" ];then
@@ -467,7 +482,7 @@ CreerCertificat(){
       echo $RANDPASS >  "${WK_DIR}/p12/${firstCN}.passwd"
       openssl pkcs12 -export -password pass:$RANDPASS -inkey "${WK_DIR}/private/${firstCN}.key" -in "${WK_DIR}/certs/${firstCN}.pem" -name "${firstCN}" -certfile "${WK_DIR}/cacert.pem" -caname "${ca}" -out "${WK_DIR}/p12/${firstCN}.p12"
       chmod 444 "${WK_DIR}/certs/${firstCN}.pem"
-      chgrp ssl-cert "${WK_DIR}/certs/${firstCN}.pem"
+      # chgrp ssl-cert "${WK_DIR}/certs/${firstCN}.pem"
       [[ -f /usr/bin/keytool ]] && \
       keytool -importkeystore -destkeystore "${WK_DIR}/$(basename ${WK_DIR}).jks" -srcstoretype PKCS12 -srckeystore "${WK_DIR}/p12/${firstCN}.p12" -srcstorepass $RANDPASS -storepass changeit
     fi
