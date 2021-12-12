@@ -2,43 +2,57 @@
 #================================================================
 # HEADER
 #================================================================
-#% DESCRIPTION
-#% Industrialisation de la gestion des certificats avec openssl.
-#% Permet de créer des certificats avec OpenSSL au format pem ainsi qu'un P12.
-#% Ajout d'un keystore.
-#+ Exemple :
-#+  ${SCRIPT_NAME} [-f] -a Root                                 # Creation d'un certificat d'autorite
-#+  ${SCRIPT_NAME} [-f] -a Int1 -p Root                         # Creation d'un certificat d'autorite ayant une autorite parent
-#+  ${SCRIPT_NAME} [-f] -a Root -c -s -o ocsp.example.com       # Creation d'un certificat avec les flags client, serveur et oscp ayant pour fqdn ocsp.example.com
-#+  ${SCRIPT_NAME} [-f] -a Int1 -s example.com,www.example.org  # Creation d'un certificat fqdn,fqdn2 avec le flag serveur  
-#+  ${SCRIPT_NAME} [-f] -a Root -r ocsp.example.com             # Revocation du certificat ocsp.example.com
-#+  ${SCRIPT_NAME} -a Int1 -l                                   # List des certificats
-#+  ${SCRIPT_NAME} -a Int1 -t mysite.example.com                # Affiche le contenu d'un certificat
-#+
-#% OPTIONS
-#%  -a $name | --authority=$name        Create a new authority or choose an existing authority
-#%  -p $name | --parent=$name           Relative parent only used when create authority
-#%  -s $CN1,$CN2 | --server=$CN1,$CN2   Add nsCertType server and extendedKeyUsage serverAuth
-#%  -c $CN1,$CN2 | --client=$CN1,$CN2   Add nsCertType client and extendedKeyUsage clientAuth
-#%  -o $CN1,$CN2 | --ocsp=$CN1,$CN2     Add extendedKeyUsage OCSPSigning
-#%  -m $CN1,$CN2 | --mail=$CN1,$CN2     Add nsCertType client and emailProtection
-#%  -r $CN1 | --revoke=$CN1             Revoke cert
-#%  -f                                  Create fast without question C/O/OU/L/ST/emailAddress
-#%  -t $CN1                             Text out cert
-#%  -l                                  List cert
-#%  -h                                  print this help
-#%  -v                                  verbose
-#%
-#================================================================
 #- IMPLEMENTATION
 #-  version     ${SCRIPT_NAME} 0.2
 #-  author      Julien BLAIS
-#-  license     On s'en branle
 #-
 #================================================================
 #  HISTORY
 #   2019/12/29 : Creation
-#
+#   2021/12/12 : Fix ca certificat
+#================================================================
+#% DESCRIPTION
+#% Industrialisation de la gestion des certificats avec openssl.
+#% Permet de créer des certificats avec OpenSSL au format pem ainsi qu'un P12.
+#% Ajout d'un keystore.
+#%
+#% Commands
+#%  -a <autority>                       name of the authority
+#%  -p <autority>                       name of the parent authority
+#%  -s <common name>[,<common name>]    nsCertType server and extendedKeyUsage serverAuth
+#%  -c <common name>[,<common name>]    nsCertType client and extendedKeyUsage clientAuth
+#%  -o <common name>[,<common name>]    extendedKeyUsage OCSPSigning
+#%  -m <common name>[,<common name>]    nsCertType client and emailProtection
+#%  -r <common name>                    Revoke a certificate
+#%  -t <common name>                    Text out cert
+#%  -l                                  List cert
+#% Option
+#%  -f                                  Run fast without question C/O/OU/L/ST/emailAddress
+#%  -h                                  print this help
+#%  -v                                  verbose
+#%
+#+ Exemple :
+#+ Creation d'un certificat d'autorite:
+#+    ${SCRIPT_NAME} -f -a root
+#+
+#+ Creation d'un certificat d'autorite lié à un parent:
+#+    ${SCRIPT_NAME} -f -a int -p root
+#+
+#+ Creation d'un certificat avec les flags client, serveur et oscp
+#+    ${SCRIPT_NAME} -f -a root -c -s -o ocsp.example.com
+#+
+#+ Creation d'un certificat fqdn,fqdn2 avec le flag serveur
+#+    ${SCRIPT_NAME} [-f] -a int -s example.com,www.example.org   
+#+
+#+ Revocation du certificat ocsp.example.com
+#+    ${SCRIPT_NAME} [-f] -a root -r ocsp.example.com
+#+
+#+ List des certificats
+#+    ${SCRIPT_NAME} -a int -l
+#+
+#+ Affiche le contenu d'un certificat
+#+    ${SCRIPT_NAME} -a int -t mysite.example.com
+#+
 #================================================================
 # END_OF_HEADER
 #================================================================
@@ -67,32 +81,29 @@ SSL_FLD=(
   emailAddress
 )
 #============================
-#  PARSE OPTIONS WITH GETOPTS
+#  general variables
 #============================
 
-  #== set short options ==#
-SCRIPT_OPTS='hvsr:ca:-:t:p:oflm'
+SCRIPT_HEADSIZE=$(head -200 ${0} |grep -n "^# END_OF_HEADER" | cut -f1 -d:)
+SCRIPT_NAME="$(basename ${0})"
+DATE=$(date +"%Y%m%d")
 
-  #== set long options associated with short one ==#
-typeset -A ARRAY_OPTS
-ARRAY_OPTS=(
-  [help]=h
-  [text]=t
-  [verbose]=v
-  [revoke]=r
-  [server]=s
-  [client]=c
-  [mail]=m
-  [authority]=a
-  [parent]=p
-  [info]=i
-  [list]=l
-  [ocsp]=o
-  [fast]=f
-)
 #============================
 #  FUNCTIONS
 #============================
+
+#== BEGIN usage function ==#
+usage()     { head -${SCRIPT_HEADSIZE:-99} ${0} | grep -e "^#+"     | sed -e "s/^#+[ ]*//g" -e "s/\${SCRIPT_NAME}/${SCRIPT_NAME}/g";}
+usagefull() { head -${SCRIPT_HEADSIZE:-99} ${0} | grep -e "^#[%+-]" | sed -e "s/^#[%+-]//g" -e "s/\${SCRIPT_NAME}/${SCRIPT_NAME}/g";}
+help() { head -${SCRIPT_HEADSIZE:-99} ${0} | grep -e "^#%" | sed -e "s/^#[%+-]//g" -e "s/\${SCRIPT_NAME}/${SCRIPT_NAME}/g";}
+scriptinfo(){ head -${SCRIPT_HEADSIZE:-99} ${0} | grep -e "^#-"     | sed -e "s/^#-//g" -e "s/\${SCRIPT_NAME}/${SCRIPT_NAME}/g"    ;}
+#== END   usage function ==#
+
+#== BEGIN echo  function ==#
+info  (){ echo -e "\e[32m<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n$(date) : $1\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\e[39m";}
+error (){ echo -e "\e[31m<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n$(date) : $1\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\e[39m";}
+#== END   echo  function ==#
+
 #============================
 #  FUNCTIONS Creation de repertoire
 #============================
@@ -100,116 +111,118 @@ _mkdir(){
 
   if [ ! -d "${1}" ];then
     mkdir -p "${1}"
-    # chgrp ssl-cert "${1}"
+    chgrp ssl-cert "${1}"
   fi
 }
-
 #============================
-#  FUNCTIONS impression openssl.cnf : POLICY
+#  FUNCTIONS impression d'une partie du fichier openssl.cnf
 #============================
+PrintOCSPServerConf(){
+  printf "[ v3_OCSP ]
+  basicConstraints = CA:FALSE
+  keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+  extendedKeyUsage = OCSPSigning\n"
+}
 
 PrintPolicyRootConf(){
   printf "[ policy_match ]
-countryName       = match
-stateOrProvinceName   = match
-organizationName    = match
-organizationalUnitName  = optional
-commonName        = supplied
-emailAddress      = optional\n"
+  countryName       = match
+  stateOrProvinceName   = optional
+  organizationName    = optional
+  organizationalUnitName  = optional
+  commonName        = supplied
+  emailAddress      = optional\n"
 }
 
 PrintPolicyMinimalConf(){
   printf "[ policy_match ]
-countryName       = optional
-stateOrProvinceName   = optional
-organizationName    = optional
-organizationalUnitName  = optional
-commonName        = supplied
-emailAddress      = optional\n"
+  countryName       = match
+  stateOrProvinceName   = optional
+  organizationName    = optional
+  organizationalUnitName  = optional
+  commonName        = supplied
+  emailAddress      = optional\n"
 }
 
 #============================
-#  FUNCTIONS impression openssl.cnf : Partie minimal
+#  FUNCTIONS impression d'une partie du fichier openssl.cnf
 #============================
 PrintMinimalConf(){
   printf "[ req ]
-distinguished_name      = req_distinguished_name
-x509_extensions         = v3_ca
-string_mask             = nombstr
+  distinguished_name = req_distinguished_name
 
-[ v3_ca ]
-subjectKeyIdentifier=hash
-authorityKeyIdentifier=keyid:always,issuer
-basicConstraints = critical,CA:true
+  [ req_distinguished_name ]
 
-[ req_distinguished_name ]
-countryName                     = Country Name (2 letter code)
-countryName_default             = IN
-countryName_min                 = 2
-countryName_max                 = 2
-stateOrProvinceName             = State or Province Name (full name)
-stateOrProvinceName_default     = Some-State
-localityName                    = Locality Name (eg, city)
-localityName_default            = BANGALORE
-0.organizationName              = Organization Name (eg, company)
-0.organizationName_default      = GoLinuxCloud
-organizationalUnitName          = Organizational Unit Name (eg, section)
-commonName                      = Common Name (eg, your name or your server\'s hostname)
-commonName_max                  = 64
-emailAddress                    = Email Address
-emailAddress_max                = 64
+  [ tmp_ca ]
+  dir       = ${WK_DIR}
+  certs       = \$dir/certs
+  crl_dir     = \$dir/crl
+  database    = \$dir/index.txt
+  new_certs_dir   = \$dir/newcerts
+  certificate   = \$dir/cacert.pem
+  serial      = \$dir/serial
+  crlnumber     = \$dir/crlnumber
+  crl       = \$dir/crl.pem
+  private_key   = \$dir/private/cakey.pem
+  RANDFILE    = \$dir/private/.rand
+  x509_extensions = usr_cert
+  name_opt    = ca_default
+  cert_opt    = ca_default
+  default_days  = 365
+  default_crl_days= 30
+  default_md    = default         # use public key default MD
+  preserve    = no          # keep passed DN ordering
+  policy      = policy_match
 
-[ tmp_ca ]
-dir       = ${WK_DIR}
-certs       = \$dir/certs
-crl_dir     = \$dir/crl
-database    = \$dir/index.txt
-new_certs_dir   = \$dir/newcerts
-certificate   = \$dir/cacert.pem
-serial      = \$dir/serial
-crlnumber     = \$dir/crlnumber
-crl       = \$dir/crl.pem
-private_key   = \$dir/private/cakey.pem
-RANDFILE    = \$dir/private/.rand
-x509_extensions = usr_cert
-name_opt    = ca_default
-cert_opt    = ca_default
-default_days  = 365
-default_crl_days= 30
-default_md    = default         # use public key default MD
-preserve    = no          # keep passed DN ordering
-policy      = policy_match
-
-[ ca ]
-default_ca    = tmp_ca\n"
+  [ ca ]
+  default_ca    = tmp_ca\n"
 }
+
 #============================
-#  FUNCTIONS impression openssl.cnf : les configurations
+#  FUNCTIONS impression d'une partie du fichier openssl.cnf
 #============================
-PrintOCSPServerConf(){
-  printf "[ v3_OCSP ]
-basicConstraints = CA:FALSE
-keyUsage = nonRepudiation, digitalSignature, keyEncipherment
-extendedKeyUsage = OCSPSigning\n"
+Print_V3CAConf(){
+  printf "[ v3_ca ]
+  subjectKeyIdentifier=hash
+  authorityKeyIdentifier=keyid:always,issuer
+  basicConstraints = critical,CA:true
+  keyUsage = cRLSign, keyCertSign
+  nsCertType = sslCA, emailCA\n"
 }
 
 Print_V3_intermediate_CAConf(){
   printf "[ v3_intermediate_ca ]
-subjectKeyIdentifier = hash
-authorityKeyIdentifier = keyid:always,issuer
-basicConstraints = critical, CA:true, pathlen:0
-keyUsage = critical, digitalSignature, cRLSign, keyCertSign\n"
+  subjectKeyIdentifier = hash
+  authorityKeyIdentifier = keyid:always,issuer
+  basicConstraints = critical, CA:true, pathlen:0
+  keyUsage = critical, digitalSignature, cRLSign, keyCertSign
+  nsCertType = sslCA, emailCA\n"
+
 }
 
+#============================
+#  FUNCTIONS impression d'une partie du fichier openssl.cnf
+#============================
+PrintCAConf(){
+  printf "[ ca_ext ]
+  keyUsage               = critical,keyCertSign,cRLSign
+  basicConstraints       = critical,CA:true
+  subjectKeyIdentifier   = hash
+  authorityKeyIdentifier = keyid:always\n"
+}
+
+#============================
+#  FUNCTIONS impression d'une partie du fichier openssl.cnf
+#============================
 PrintCertConf(){
   printf "[ cert ]
-subjectKeyIdentifier        = hash
-authorityKeyIdentifier      = keyid,issuer:always
-basicConstraints            = critical,CA:FALSE
-keyUsage                    = digitalSignature, nonRepudiation, keyEncipherment
-extendedKeyUsage            = ${extendedKeyUsage}
-nsComment                   = \"OpenSSL Generated Certificate\"\n"
-[[ "${index}" != "1" ]] && printf "issuerAltName               = issuer:copy\n"
+  subjectKeyIdentifier        = hash
+  authorityKeyIdentifier      = keyid,issuer:always
+  basicConstraints            = critical,CA:FALSE
+  keyUsage                    = digitalSignature, nonRepudiation, keyEncipherment
+  extendedKeyUsage            = ${extendedKeyUsage}
+  nsComment                   = \"OpenSSL Generated Certificate\"\n"
+  [[ "${index}" != "1" ]] && printf "issuerAltName               = issuer:copy\n"
 
   [[ "${nsCertType}" != "" ]] && printf "nsCertType                = ${nsCertType}\n"
   [[ "${ocsp}" != "" ]] &&       printf "authorityInfoAccess       = OCSP;URI:http://${ocsp}\n"
@@ -225,9 +238,9 @@ nsComment                   = \"OpenSSL Generated Certificate\"\n"
 CreerAutorite(){
 
   if [ ${flagOptParent} -eq 1 ];then
-    info "Creation d'un certificat d'autorite intermediaire: ${OptAutorite}"
-
+    info "Creation d'un certificat d'autorite intermediaire '${OptAutorite}' signé à partir de '${OptParent}'"
     WK_DIR="${SSL_DIR}/${OptParent}"
+
     # Extraction du Subject du parent
     SUB=$(openssl x509 -noout -subject -in ${WK_DIR}/cacert.pem)
 
@@ -243,13 +256,15 @@ CreerAutorite(){
         eval "$(cut -d "," -f "$i" <<< "${WK_SUB}")"
       done
     fi
-    WK_DIR="${SSL_DIR}/${OptAutorite}"
   else
     info "Creation d'un certificat d'autorite racine: ${OptAutorite}"
-    O=${OptAutorite}
+
   fi
+  WK_DIR="${SSL_DIR}/${OptAutorite}"
   CN="${OptAutorite} - Certification Authority Root"
   OU="Secure Digital Certificate Signing"
+  O=${OptAutorite}
+
   if [ "${flagOptFast}" = "0" ];then
 
     for field in "${SSL_FLD[@]}"
@@ -293,47 +308,56 @@ CreerAutorite(){
     echo "$RANDPASS" >  "${KEY_DIR}/${OptAutorite}.key"
     openssl genrsa -aes256 -out "${WK_DIR}/private/cakey.pem" -passout file:"${KEY_DIR}/${OptAutorite}.key" ${bits}
     chmod 400 "${WK_DIR}/private/cakey.pem"
-    # chgrp ssl-cert "${WK_DIR}/private/cakey.pem"
+    chgrp ssl-cert "${WK_DIR}/private/cakey.pem"
   fi
 
   # Soit le nouveau certificat d'autorite a un parent => certificat d'autorite intermediaire
   if [ ${flagOptParent} -eq 1 ];then
-
+    WK_DIR="${SSL_DIR}/${OptParent}"
     # Creation d'un CSR...
     if [[ ! -f "${SSL_DIR}/${OptAutorite}/CA.csr" ]]; then
-      openssl req -new -out "${SSL_DIR}/${OptAutorite}/CA.csr" -key "${SSL_DIR}/${OptAutorite}/private/cakey.pem" -passin file:"${KEY_DIR}/${OptAutorite}.key" -subj "${subj}" -config <(PrintMinimalConf;PrintPolicyMinimalConf)
+      openssl req -new -out "${SSL_DIR}/${OptAutorite}/CA.csr" \
+      -key "${SSL_DIR}/${OptAutorite}/private/cakey.pem" \
+      -passin file:"${KEY_DIR}/${OptAutorite}.key" \
+      -subj "${subj}" \
+      -extensions v3_intermediate_ca \
+      -config <(PrintMinimalConf;PrintPolicyMinimalConf;Print_V3_intermediate_CAConf)
     fi
-    # On switch sur la conf parent
-    WK_DIR="${SSL_DIR}/${OptParent}"
 
     # La certif parent signe avec sa cle
-    if [[ ! -f "${SSL_DIR}/${OptAutorite}/cacert.pem.backup" ]]; then
+    if [[ ! -f "${SSL_DIR}/${OptAutorite}/cacert.pem" ]]; then
+  
       openssl ca -batch -days ${days} -create_serial \
       -passin file:"${KEY_DIR}/${OptParent}.key" \
       -in "${SSL_DIR}/${OptAutorite}/CA.csr" \
-      -out "${SSL_DIR}/${OptAutorite}/cacert.pem.backup" \
-      -extensions v3_intermediate_ca -notext -config <(PrintMinimalConf;PrintPolicyMinimalConf;Print_V3_intermediate_CAConf)
+      -out "${SSL_DIR}/${OptAutorite}/cacert.pem" \
+      -extensions v3_intermediate_ca \
+      -config <(PrintMinimalConf;PrintPolicyMinimalConf;Print_V3_intermediate_CAConf)
 
-      echo 01 > ${SSL_DIR}/${OptAutorite}/crlnumber
-      # chgrp ssl-cert "${SSL_DIR}/${OptAutorite}/cacert.pem.backup"
-      chmod 644 "${SSL_DIR}/${OptAutorite}/cacert.pem.backup"
-      openssl x509 -serial -noout -in "${SSL_DIR}/${OptAutorite}/cacert.pem.backup" | cut -d= -f2 > "${SSL_DIR}/${OptAutorite}/serial"
+      chgrp ssl-cert "${SSL_DIR}/${OptAutorite}/cacert.pem"
+      chmod 644 "${SSL_DIR}/${OptAutorite}/cacert.pem"
+      openssl x509 -serial -noout -in "${SSL_DIR}/${OptAutorite}/cacert.pem" | cut -d= -f2 > "${SSL_DIR}/${OptAutorite}/serial"
       printf "%X\n" $((0x$(cat "${SSL_DIR}/${OptAutorite}/serial")+1))>"${SSL_DIR}/${OptAutorite}/serial"
+      WK_DIR="${SSL_DIR}/${OptAutorite}"
+
     fi
     # On cree la chaine CA Racine + celui qu'on vient de creer.
-    cat "${SSL_DIR}/${OptAutorite}/cacert.pem.backup" "${WK_DIR}/cacert.pem" > "${SSL_DIR}/${OptAutorite}/cacert.pem"
+    cat "${SSL_DIR}/${OptParent}/cacert.pem" "${SSL_DIR}/${OptAutorite}/cacert.pem" > "${SSL_DIR}/${OptAutorite}/cachain.pem"
 
-    # On switch sur la nouvelle autorite
-    WK_DIR="${SSL_DIR}/${OptAutorite}"
   else
     # Soit le certificat est bien racine / pas de parent
     if [[ ! -f "${WK_DIR}/cacert.pem" ]]; then
-      openssl req -x509 -sha512 -extensions v3_ca \
-      -days ${days} -subj "${subj}" \
+      openssl req -x509 -sha512 \
+      -extensions v3_ca \
+      -days ${days} \
+      -subj "${subj}" \
       -key "${WK_DIR}/private/cakey.pem" \
       -passin file:"${KEY_DIR}/${OptAutorite}.key" \
-      -out "${WK_DIR}/cacert.pem" -config <(PrintMinimalConf;PrintPolicyRootConf;Print_V3CAConf)
-
+      -out "${WK_DIR}/cacert.pem" \
+      -config <(PrintMinimalConf;PrintPolicyRootConf;Print_V3CAConf)
+      
+      chgrp ssl-cert "${WK_DIR}/cacert.pem"
+      chmod 644 "${WK_DIR}/cacert.pem"
       openssl x509 -serial -noout -in "${WK_DIR}/cacert.pem" | cut -d= -f2 > "${WK_DIR}/serial"
       printf "%X\n" $((0x$(cat "${WK_DIR}/serial")+1))>"${WK_DIR}/serial"
     fi
@@ -352,17 +376,17 @@ CreerAutorite(){
 #  FUNCTIONS Revoke un certificat
 #============================
 RevokeCertificat(){
-info "Revocation d'un certificat du certificat: ${OptRevokeCert}"
+  info "Revocation d'un certificat du certificat: ${OptRevokeCert}"
 
-[[ -f ${WK_DIR}/certs/${OptRevokeCert}.pem ]] && \
-  openssl ca -revoke "${WK_DIR}/certs/${OptRevokeCert}.pem" -name tmp_ca -passin file:"${KEYFILE}"  -config <(PrintMinimalConf)
-[[ -f ${WK_DIR}/certs/${OptRevokeCert}.pem ]] && \
-  mv "${WK_DIR}/certs/${OptRevokeCert}.pem"  "${WK_DIR}/certs/${OptRevokeCert}.pem.${DATE}.drop"
-[[ -f ${WK_DIR}/private/${OptRevokeCert}.key ]] && \
-  mv "${WK_DIR}/private/${OptRevokeCert}.key"  "${WK_DIR}/private/${OptRevokeCert}.key.${DATE}.drop"
+  [[ -f ${WK_DIR}/certs/${OptRevokeCert}.pem ]] && \
+    openssl ca -revoke "${WK_DIR}/certs/${OptRevokeCert}.pem" -name tmp_ca -passin file:"${KEYFILE}"  -config <(PrintMinimalConf)
+  [[ -f ${WK_DIR}/certs/${OptRevokeCert}.pem ]] && \
+    mv "${WK_DIR}/certs/${OptRevokeCert}.pem"  "${WK_DIR}/certs/${OptRevokeCert}.pem.${DATE}.drop"
+  [[ -f ${WK_DIR}/private/${OptRevokeCert}.key ]] && \
+    mv "${WK_DIR}/private/${OptRevokeCert}.key"  "${WK_DIR}/private/${OptRevokeCert}.key.${DATE}.drop"
 
-[[ -f /usr/bin/keytool ]] && \
-  keytool -delete -alias ${OptRevokeCert} -keystore "${WK_DIR}/$(basename ${WK_DIR}).jks" -storepass changeit
+  [[ -f /usr/bin/keytool ]] && \
+    keytool -delete -alias ${OptRevokeCert} -keystore "${WK_DIR}/$(basename ${WK_DIR}).jks" -storepass changeit
 }
 
 #============================
@@ -465,7 +489,7 @@ CreerCertificat(){
   if [ ! -f "${WK_DIR}/private/${firstCN}.key" ];then
     openssl genrsa -out "${WK_DIR}/private/${firstCN}.key" ${bits}
     chmod 400 "${WK_DIR}/private/${firstCN}.key"
-    # chgrp ssl-cert "${WK_DIR}/private/${firstCN}.key"
+    chgrp ssl-cert "${WK_DIR}/private/${firstCN}.key"
   fi
 
   if [ ! -f "${WK_DIR}/certs/${firstCN}.pem" ];then
@@ -474,15 +498,28 @@ CreerCertificat(){
     openssl req -new -sha256 -key "${WK_DIR}/private/${firstCN}.key" -out "${WK_DIR}/newcerts/${firstCN}.csr" -nodes -subj "${subj}" -config  <(PrintMinimalConf;PrintPolicyMinimalConf)
 
     # Signature du Certificat d'autorite/racine
-    openssl ca -name tmp_ca -batch -passin file:"${KEYFILE}" -extensions cert -in "${WK_DIR}/newcerts/${firstCN}.csr" -out "${WK_DIR}/certs/${firstCN}.pem" -config <(PrintMinimalConf;PrintPolicyMinimalConf;PrintCertConf)
+    openssl ca -name tmp_ca \
+  -batch \
+  -passin file:"${KEYFILE}" \
+  -extensions cert \
+  -in "${WK_DIR}/newcerts/${firstCN}.csr" \
+  -out "${WK_DIR}/certs/${firstCN}.pem" -config <(PrintMinimalConf;PrintPolicyMinimalConf;PrintCertConf)
 
     if [ -f "${WK_DIR}/certs/${firstCN}.pem" ];then
       RANDPASS=$(date | md5sum |  cut -c1-8)
       echo "password : $RANDPASS"
       echo $RANDPASS >  "${WK_DIR}/p12/${firstCN}.passwd"
-      openssl pkcs12 -export -password pass:$RANDPASS -inkey "${WK_DIR}/private/${firstCN}.key" -in "${WK_DIR}/certs/${firstCN}.pem" -name "${firstCN}" -certfile "${WK_DIR}/cacert.pem" -caname "${ca}" -out "${WK_DIR}/p12/${firstCN}.p12"
+      openssl pkcs12 -export \
+  -password pass:$RANDPASS \
+  -inkey "${WK_DIR}/private/${firstCN}.key" \
+  -in "${WK_DIR}/certs/${firstCN}.pem" \
+  -name "${firstCN}" \
+  -certfile "${WK_DIR}/cacert.pem" \
+  -caname "${ca}" \
+  -out "${WK_DIR}/p12/${firstCN}.p12"
+
       chmod 444 "${WK_DIR}/certs/${firstCN}.pem"
-      # chgrp ssl-cert "${WK_DIR}/certs/${firstCN}.pem"
+      chgrp ssl-cert "${WK_DIR}/certs/${firstCN}.pem"
       [[ -f /usr/bin/keytool ]] && \
       keytool -importkeystore -destkeystore "${WK_DIR}/$(basename ${WK_DIR}).jks" -srcstoretype PKCS12 -srckeystore "${WK_DIR}/p12/${firstCN}.p12" -srcstorepass $RANDPASS -storepass changeit
     fi
@@ -491,28 +528,7 @@ CreerCertificat(){
   fi
 }
 
-#== BEGIN usage function ==#
-usage()     { head -${SCRIPT_HEADSIZE:-99} ${0} | grep -e "^#+"     | sed -e "s/^#+[ ]*//g" -e "s/\${SCRIPT_NAME}/${SCRIPT_NAME}/g";}
-usagefull() { head -${SCRIPT_HEADSIZE:-99} ${0} | grep -e "^#[%+-]" | sed -e "s/^#[%+-]//g" -e "s/\${SCRIPT_NAME}/${SCRIPT_NAME}/g";}
-scriptinfo(){ head -${SCRIPT_HEADSIZE:-99} ${0} | grep -e "^#-"     | sed -e "s/^#-//g" -e "s/\${SCRIPT_NAME}/${SCRIPT_NAME}/g"    ;}
-#== END   usage function ==#
-#== BEGIN echo  function ==#
-info  (){ echo -e "\e[32m<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n$(date) : $1\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\e[39m";}
-error (){ echo -e "\e[31m<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n$(date) : $1\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\e[39m";}
-#== END   echo  function ==#
-
-#============================
-#  FILES AND VARIABLES
-#============================
-
-#== general variables ==#
-SCRIPT_HEADSIZE=$(head -200 ${0} |grep -n "^# END_OF_HEADER" | cut -f1 -d:)
-SCRIPT_NAME="$(basename ${0})" # scriptname without path
-HOSTNAME="$(hostname)"
-DATE=$(date +"%Y%m%d")
-
-
-  #== flag option menu R7 ==#
+#== flag option menu R7 ==#
 flagOptErr=0
 flagOptVerbose=0
 flagOptAutorite=0
@@ -528,104 +544,56 @@ flagOptText=0
 flagOptMail=0
 
 
-  #== parse options ==#
-while getopts ${SCRIPT_OPTS} OPTION ; do
-  if [[ "$OPTION" == "-" ]]; then
-    LONG_OPTION=$OPTARG
-    LONG_OPTARG=$(echo "$LONG_OPTION" | grep "=" | cut -d'=' -f2)
-    LONG_OPTIND=-1
-    [[ "$LONG_OPTARG" == "" ]] && LONG_OPTIND=$OPTIND || LONG_OPTION=$(echo "$OPTARG" | cut -d'=' -f1)
-    [[ $LONG_OPTIND -ne -1 ]] && eval LONG_OPTARG="\$$LONG_OPTIND"
-    OPTION=${ARRAY_OPTS[$LONG_OPTION]}
-    [[ "$OPTION" == "" ]] &&  OPTION="?" OPTARG="-$LONG_OPTION"
-
-    if [[ $( echo "${SCRIPT_OPTS}" | grep -c "${OPTION}:" ) -eq 1 ]]; then
-      if [[ "${LONG_OPTARG}" = "" ]] || [[ "${LONG_OPTARG}" = -* ]]; then
-        OPTION=":" OPTARG="-$LONG_OPTION"
-      else
-        OPTARG="$LONG_OPTARG";
-        if [[ $LONG_OPTIND -ne -1 ]]; then
-          [[ $OPTIND -le $Optnum ]] && OPTIND=$(( "$OPTIND"+1 ))
-          shift $OPTIND
-          OPTIND=1
-        fi
-      fi
-    fi
-  fi
-
-  #== options follow by another option instead of argument ==#
-  if [[ "${OPTION}" != ":" ]] && [[ "${OPTION}" != "?" ]] && [[ "${OPTARG}" = "-*" ]]; then
-    OPTARG="$OPTION" OPTION=":"
-  fi
-  #== manage options ==#
-  getopts_get_optional_argument() {
+#== manage options ==#
+getopts_get_optional_argument() {
+  eval "next_token=\${$OPTIND}"
+  OPTARG=()
+  while [[ -n $next_token && $next_token != -* ]];
+  do
+    OPTIND=$((OPTIND + 1))
+    OPTARG+=("$next_token")
     eval "next_token=\${$OPTIND}"
-    OPTARG=()
-    while [[ -n $next_token && $next_token != -* ]];
-    do
-      OPTIND=$((OPTIND + 1))
-      OPTARG+=("$next_token")
-      eval "next_token=\${$OPTIND}"
-    done
-  }
+  done
+}
+
+#== parse options ==#
+while getopts 'hvflscomr:a:t:p:' OPTION ; do
+
   case "$OPTION" in
-    a ) flagOptMenu=1;flagOptAutorite=1;OptAutorite="${OPTARG}";;
+    a ) flagOptMenu=1; flagOptAutorite=1; OptAutorite="${OPTARG}";;
 
-    p ) flagOptMenu=1;flagOptParent=1;OptParent="${OPTARG}";;
+    p ) flagOptMenu=1; flagOptParent=1; OptParent="${OPTARG}";;
 
-    r ) flagOptMenu=1;flagOptRevoke=1;OptRevokeCert="${OPTARG}";;
+    r ) flagOptMenu=1; flagOptRevoke=1; OptRevokeCert="${OPTARG}";;
 
-    o ) flagOptMenu=1;
-      getopts_get_optional_argument "$@"
-      OptCN=("${OPTARG[@]}")
-      flagOptOCSP=1;;
+    o ) flagOptMenu=1; getopts_get_optional_argument "$@"; OptCN=("${OPTARG[@]}"); flagOptOCSP=1;;
 
-    f ) flagOptMenu=1;flagOptFast=1;;
+    f ) flagOptMenu=1; flagOptFast=1;;
 
-    s ) flagOptMenu=1;
-      getopts_get_optional_argument "$@"
-      OptCN=("${OPTARG[@]}")
+    s ) flagOptMenu=1; getopts_get_optional_argument "$@"; OptCN=("${OPTARG[@]}"); flagOptServeur=1;;
 
-      flagOptServeur=1;;
+    c ) flagOptMenu=1; getopts_get_optional_argument "$@"; OptCN=("${OPTARG[@]}"); flagOptClient=1;;
 
-    c ) flagOptMenu=1;
-      getopts_get_optional_argument "$@"
-      OptCN=("${OPTARG[@]}")
-      flagOptClient=1;;
-
-    m ) flagOptMenu=1;
-      getopts_get_optional_argument "$@"
-      emailAddress=${OPTARG}
-      OptCN=${emailAddress}
-      flagOptMail=1;;
+    m ) flagOptMenu=1; getopts_get_optional_argument "$@"; emailAddress=${OPTARG}; OptCN=${emailAddress}; flagOptMail=1;;
 
     t)  flagOptMenu=1;flagOptText=1;OptCert="${OPTARG}";;
 
     l)  flagOptMenu=1;flagOptList=1;;
 
-    h ) usagefull
-      exit 0;;
+    h ) usagefull; exit 0;;
 
-    i ) scriptinfo
-      exit 0;;
+    v ) flagOptVerbose=1; set -x;;
 
-    v ) flagOptVerbose=1
-      set -x;;
-
-    : ) error "${SCRIPT_NAME}: -$OPTARG: option requires an argument"
-      flagOptErr=1 ;;
-
-    ? ) error "${SCRIPT_NAME}: -$OPTARG: unknown option"
-      flagOptErr=1 ;;
+    * ) error "${SCRIPT_NAME}: '${@}' '${OPTION}' unknown option"; flagOptErr=1 ;;
   esac
 done
-shift $((${OPTIND} - 1)) ## shift options
+shift "$((OPTIND - 1))"
 
 #============================
 #  MAIN SCRIPT
 #============================
 if [ ${flagOptMenu} -eq 0 ];then
-  usage
+  help
   exit 10
 fi
 
